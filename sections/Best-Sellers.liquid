@@ -1,0 +1,389 @@
+<link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+{%- style -%}
+    .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+    .max-h-300{
+     height:300px;
+    }
+
+  .max-h-full{
+    max-height:100%;
+  }
+    .product-list{
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE/Edge */
+      cursor: grab;
+    }
+
+   .product-list::-webkit-scrollbar {
+      display: none; /* Chrome/Safari/Opera */
+    }
+  .product-list.active {
+      cursor: grabbing;
+    }
+
+  .product-card {
+    flex: 0 0 calc(50% - 10px);
+    scroll-snap-align: start;
+  }
+  .product-list-mobile{
+      transition: all 2s ease-in-out;
+  }
+
+  @media (min-width: 768px) {
+    {% liquid
+      assign desktop_cols = section.settings.products_per_row_desktop | default: 4
+      assign col_width = 100 | divided_by: desktop_cols | minus: 2
+      assign padding_right = 24 | divided_by: desktop_cols | round
+    %}
+
+    .product-card {
+      flex: 0 0 calc({{ col_width }}% - 16px);
+    }
+
+    .product-list {
+      padding-right: calc({{ padding_right }}% - 10px);
+        margin-left: calc(16% - 10px);
+    }
+{%- endstyle -%}
+
+{% liquid
+  assign mobile_grid = section.settings.products_per_row_mobile | default: 2 | prepend: 'grid-cols-'
+%}
+
+<div class="section-{{ section.id }}-padding ">
+  <div class="section-stack page-width">
+    {% if section.settings.title != blank or section.settings.link_text != blank %}
+      <section-header class="section-header ">
+        <div class="  flex justify-center md:justify-between prose py-20">
+          <h1 class="h1">
+            {{ section.settings.title | escape }}
+          </h1>
+
+          <a href="{{  section.settings.link_url }}" class="text-with-icon gap-3 hidden md:flex flex items-center">
+            <span class="reversed-link subtitle">{{- section.settings.link_text | escape -}}</span>
+            <span>{{ 'icon-arrow.svg' | inline_asset_content }}</span>
+          </a>
+        </div>
+      </section-header>
+    {%- endif -%}
+  </div>
+
+  <div class="scrollable-with-controls featured-collection__inner hidden md:block ">
+    <scroll-carousel id="scroll-area-{{ section.id }}" class="scroll-area relative overflow-hidden is-scrollable ">
+      <product-list class="flex pb-2 gap-6 product-list " id="product-list">
+        {%- assign products = section.settings.products | default: section.settings.collection.products -%}
+        {%- for product in products limit: section.settings.products_count -%}
+          {% render 'product-card', product_card_product: product %}
+        {%- else -%}
+          {%- for i in (1..section.settings.products_to_show) -%}
+            {% render 'product-card', product_card_product: product %}
+          {%- endfor -%}
+        {%- endfor -%}
+      </product-list>
+    </scroll-carousel>
+  </div>
+  <div class="section-stack page-width scrollable-with-controls featured-collection__inner hidden md:block">
+    {%- if section.settings.show_progress_bar -%}
+      <div class="scrollbar bg-gray-200 mt-10 w-full h-1 overflow-hidden" style=" border-radius: 2px;">
+        <scrollbar
+          class="scrollbar__progress transition-width duration-300 ease-in-out h-full bg-black block"
+          id="scrollbar__progress"
+        ></scrollbar>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Mobile view with grid layout and show more button -->
+  <div class="md:hidden page-width">
+    <product-list
+      class="product-list-mobile {{ mobile_grid }} max-h-300 overflow-hidden  grid  gap-4"
+      id="product-list-mobile"
+    >
+      {%- assign products = section.settings.products | default: section.settings.collection.products -%}
+      {%- for product in products limit: section.settings.products_count -%}
+        {% render 'product-card', product_card_product: product %}
+      {%- else -%}
+        {%- for i in (1..section.settings.products_to_show) -%}
+          {% liquid
+            assign ridx = forloop.rindex
+            case ridx
+              when 5
+                assign ridx = 1
+              when 6
+                assign ridx = 2
+            endcase
+          %}
+          {%- assign placeholder_image = 'product-apparel-' | append: ridx -%}
+          {% render 'product-card', product_card_product: product, placeholder_image: placeholder_image %}
+        {%- endfor -%}
+      {%- endfor -%}
+    </product-list>
+
+    <div class="text-center mt-8">
+      <button
+        id="show-more-button"
+        class="bg-black hover:bg-gray-800 px-6 py-6 rounded-full rounded-md text-white transition-colors w-full"
+      >
+        Show More
+      </button>
+    </div>
+  </div>
+</div>
+<script>
+ document.addEventListener('DOMContentLoaded', function() {
+  // Cache DOM elements
+  const slider = document.getElementById('product-list');
+  const progressBar = document.querySelector('#scrollbar__progress');
+  const mobileProductList = document.getElementById('product-list-mobile');
+  const showMoreButton = document.getElementById('show-more-button');
+  
+  // Exit early if required elements don't exist
+  if (!slider || !progressBar) return;
+  
+  const slides = slider.querySelectorAll('.product-card');
+  
+  // Variables for dragging with meaningful naming
+  let isDragging = false;
+  let startX = 0;
+  let scrollLeft = 0;
+  let prevScrollLeft = 0;
+  let animationID = null;
+  let currentIndex = 0;
+  
+  // Calculate slide width only once and cache it
+  const slideWidth = (() => {
+    if (slides.length < 2) return 0;
+    const slide = slides[0];
+    const style = window.getComputedStyle(slide);
+    return parseFloat(style.width) + (parseFloat(style.marginRight) || 20);
+  })();
+  
+  // Throttle function to limit execution frequency
+  function throttle(callback, delay = 10) {
+    let isThrottled = false;
+    return function(...args) {
+      if (!isThrottled) {
+        callback.apply(this, args);
+        isThrottled = true;
+        setTimeout(() => { isThrottled = false; }, delay);
+      }
+    };
+  }
+  
+  // Update progress bar function - simplified
+  function updateProgressBar() {
+    const scrollWidth = slider.scrollWidth - slider.clientWidth;
+    if (scrollWidth > 0) {
+      const progressWidth = (slider.scrollLeft / scrollWidth) * 100;
+      progressBar.style.width = `${progressWidth}%`;
+    }
+  }
+  
+  // Smooth scroll with momentum using requestAnimationFrame
+  function smoothScroll() {
+    const velocity = 0.8;
+    const scrollDistance = (scrollLeft - slider.scrollLeft) * velocity;
+    
+    if (Math.abs(scrollDistance) < 0.5) {
+      cancelAnimationFrame(animationID);
+      return;
+    }
+    
+    slider.scrollLeft += scrollDistance;
+    updateProgressBar();
+    animationID = requestAnimationFrame(smoothScroll);
+  }
+  
+  // Scroll to specific slide index
+  function scrollToSlide(index) {
+    const scrollAmount = index * slideWidth;
+    slider.scrollLeft = scrollAmount;
+    currentIndex = index;
+    updateProgressBar();
+  }
+  
+  // Event delegation with passive option for better performance
+  slider.addEventListener('mousedown', (e) => {
+    cancelAnimationFrame(animationID);
+    isDragging = true;
+    slider.classList.add('active');
+    startX = e.pageX;
+    prevScrollLeft = slider.scrollLeft;
+    e.preventDefault();
+  });
+  
+  // Use the passive option where possible for better scrolling performance
+  slider.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    
+    const currentX = e.pageX;
+    const difference = startX - currentX;
+    scrollLeft = prevScrollLeft + difference;
+    
+    slider.scrollLeft = scrollLeft;
+    updateProgressBar();
+  }, { passive: true });
+  
+  // Use event capturing for mouseup to ensure it's caught
+  window.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    
+    isDragging = false;
+    slider.classList.remove('active');
+    
+    const endScrollLeft = slider.scrollLeft;
+    const scrollDifference = endScrollLeft - prevScrollLeft;
+    
+    if (Math.abs(scrollDifference) > 20) {
+      scrollLeft = endScrollLeft + (scrollDifference * 0.5);
+      smoothScroll();
+    }
+  }, { capture: true });
+  
+  slider.addEventListener('mouseleave', () => {
+    if (isDragging) {
+      isDragging = false;
+      slider.classList.remove('active');
+    }
+  });
+  
+  // Throttle scroll event for better performance
+  slider.addEventListener('scroll', throttle(updateProgressBar), { passive: true });
+  
+  // Throttle resize event
+  window.addEventListener('resize', throttle(updateProgressBar), { passive: true });
+  
+  // Initial setup
+  updateProgressBar();
+  
+  // Mobile Show More functionality - Only create if elements exist
+  if (mobileProductList && showMoreButton) {
+    showMoreButton.addEventListener('click', function() {
+      const isCollapsed = mobileProductList.classList.contains("max-h-300");  
+      mobileProductList.classList.toggle("max-h-300", !isCollapsed);
+      mobileProductList.classList.toggle("overflow-hidden", !isCollapsed);
+      mobileProductList.classList.toggle("max-h-full", isCollapsed);
+      
+      showMoreButton.textContent = isCollapsed ? "Show Less" : "Show More";
+    });
+  }
+});
+</script>
+
+{% schema %}
+{
+  "name": "Featured-collection",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    {
+      "type": "collection",
+      "id": "collection",
+      "label": "Collection"
+    },
+    {
+      "type": "product_list",
+      "id": "products",
+      "label": "Products",
+      "info": "Replaces collection when selected."
+    },
+    {
+      "type": "checkbox",
+      "id": "show_progress_bar",
+      "label": "Show carousel progress bar",
+      "default": false
+    },
+    {
+      "type": "range",
+      "id": "products_count",
+      "min": 2,
+      "max": 50,
+      "label": "Products to show",
+      "default": 6
+    },
+    {
+      "type": "select",
+      "id": "products_per_row_mobile",
+      "label": "Products per row (mobile)",
+      "options": [
+        {
+          "value": "1",
+          "label": "1"
+        },
+        {
+          "value": "2",
+          "label": "2"
+        }
+      ],
+      "default": "2"
+    },
+    {
+      "type": "range",
+      "id": "products_per_row_desktop",
+      "min": 2,
+      "max": 5,
+      "label": "Products per row (desktop)",
+      "default": 3
+    },
+    {
+      "type": "text",
+      "id": "title",
+      "label": "Heading",
+      "default": "Featured collection"
+    },
+     {
+      "type": "url",
+      "id": "link_url",
+      "label": "Link URL",
+      "info": "Default to collection URL."
+    },
+    {
+      "type": "text",
+      "id": "link_text",
+      "label": "Link text",
+      "default": "View all"
+    },
+    {
+      "type": "header",
+      "content": "Sction Padding"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Padding Top",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Padding Bottom",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "Featured-collection"
+    }
+  ]
+}
+{% endschema %}
